@@ -1,0 +1,4 @@
+.dev
+bin
+.cache
+compile_commands.json
