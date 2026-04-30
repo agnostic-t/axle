@@ -3,7 +3,7 @@
 
 CC="gcc"
 CFLAGS="-g -fsanitize=address"
-LDFLAGS="-g -fsanitize=address"
+LDFLAGS="-g -fsanitize=address -lyyjson"
 INPUT="../main.c ../code/axle/src/*.c"
 INCLUDE="../code/axle/include"
 OUTPUT="./bin/axle"

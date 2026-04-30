@@ -1,123 +1,206 @@
-#include "axle/string_utils.h"
-#include "axle/types.h"
 #include "axle/settings.h"
+#include "axle/string_utils.h"
+#include "axle/path_utils.h"
 #include "axle/building.h"
-#include <limits.h>
-#include <stdint.h>
+#include "axle/cleanup.h"
+#include "axle/types.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <time.h>
+#include <yyjson.h>
 
-
-const char *boilerplate =
-"#include \"build.c\"\n"
-"int main(){\n"
-"    build();\n"
-"    int r = perform();\n"
-"    if (r < 0) {\n"
-"        fprintf(stderr, \"[axle][end] build is failed\\n\");\n"
-"    } else {\n"
-"        fprintf(stderr, \"[axle][end] build is successfull\\n\");\n"
-"    }\n"
-"    return 0;\n"
-"}"
-;
-
-void usage(const char *prog){
-    fprintf(stderr, "axle - C/C++ build system\n");
-    fprintf(stderr, "usage: "
-                    "%s build PATH\n\n", prog);
-    const char *usage =
-        "PATH - path to directory with build.c file"
-    ;
-
-    fprintf(stderr, "%s\n", usage);
+static axb_optilevel parse_optimization(const char *opt) {
+    if (!opt) return O0;
+    if (strcmp(opt, "O0") == 0) return O0;
+    if (strcmp(opt, "O1") == 0) return O1;
+    if (strcmp(opt, "O2") == 0) return O2;
+    if (strcmp(opt, "O3") == 0) return O3;
+    if (strcmp(opt, "Ofast") == 0 || strcmp(opt, "OFAST") == 0) return OFAST;
+    return O0;
 }
 
-int main(int argc, char *argv[]){
-    if (argc == 1 ||
-        strcmp(argv[1], "-h") == 0 ||
-        strcmp(argv[1], "--help") == 0 ||
-        strcmp(argv[1], "help") == 0
-    ) {
-        usage(argv[0]);
-        return 1;
+static const char **json_arr_to_strlist(yyjson_val *arr) {
+    if (!arr || !yyjson_is_arr(arr)) return NULL;
+
+    size_t count = yyjson_arr_size(arr);
+    const char **list = calloc(count + 1, sizeof(char *));
+
+    size_t idx = 0;
+    yyjson_val *val;
+    yyjson_arr_iter iter;
+    yyjson_arr_iter_init(arr, &iter);
+
+    while ((val = yyjson_arr_iter_next(&iter))) {
+        if (yyjson_is_str(val)) {
+            list[idx++] = strdup(yyjson_get_str(val));
+        }
+    }
+    return list;
+}
+
+static const char **parse_defines(yyjson_val *arr) {
+    if (!arr || !yyjson_is_arr(arr)) return NULL;
+
+    size_t count = yyjson_arr_size(arr);
+    const char **list = calloc(count + 1, sizeof(char *));
+
+    size_t idx = 0;
+    yyjson_val *obj;
+    yyjson_arr_iter iter;
+    yyjson_arr_iter_init(arr, &iter);
+
+    while ((obj = yyjson_arr_iter_next(&iter))) {
+        if (yyjson_is_obj(obj)) {
+            yyjson_obj_iter o_iter;
+            yyjson_obj_iter_init(obj, &o_iter);
+            yyjson_val *key, *val;
+
+            if ((key = yyjson_obj_iter_next(&o_iter))) {
+                val = yyjson_obj_iter_get_val(key);
+
+                const char *k_str = yyjson_get_str(key);
+                const char *v_str = yyjson_get_str(val);
+
+                if (k_str && v_str) {
+                    size_t len = strlen(k_str) + strlen(v_str) + 2;
+                    char *def_str = malloc(len);
+                    snprintf(def_str, len, "%s=%s", k_str, v_str);
+                    list[idx++] = def_str;
+                }
+            }
+        }
+    }
+    return list;
+}
+
+static void load_settings(axle_receipt *recp, const char *defaults_path, const char *target_name) {
+    if (!defaults_path) return;
+
+    yyjson_read_err err;
+    yyjson_doc *doc = yyjson_read_file(defaults_path, 0, NULL, &err);
+    if (!doc) {
+        fprintf(stderr, "[warn] defaults file %s not found or invalid: %s\n", defaults_path, err.msg);
+        return;
     }
 
-    srand(time(NULL));
-    uint32_t token = rand() % 14353;
-    uint32_t token2 = rand() % 14353;
+    yyjson_val *root = yyjson_doc_get_root(doc);
 
-    if (strcmp(argv[1], "build") == 0){
-        if (argc != 3) {
-            fprintf(stderr, "[axle] missing path with build script, specify derictory\n");
-            return 1;
+    yyjson_val *comp = yyjson_obj_get(root, "compiler");
+    if (comp) {
+        const char *cc = yyjson_get_str(yyjson_obj_get(comp, "cc"));
+        if (cc) recp->compiler = strdup(cc);
+
+        const char *obj_path = yyjson_get_str(yyjson_obj_get(comp, "objects_path"));
+        if (obj_path) recp->output.obj_path = strdup(obj_path);
+
+        const char *binary_type = yyjson_get_str(yyjson_obj_get(comp, "binary"));
+        if (binary_type) {
+            if (strcmp(binary_type, "executable") == 0){
+                recp->output.type = EXECUTABLE;
+            } else if (strcmp(binary_type, "shared-lib") == 0){
+                recp->output.type = DYN_LIBRARY;
+            } else if (strcmp(binary_type, "static-lib") == 0){
+                recp->output.type = STATIC_LIBRARY;
+            } else {
+                fprintf(stderr, "[axle] error: unknown type of binary output \"%s\", fallback to \"executable\"\n", binary_type);
+                recp->output.type = EXECUTABLE;
+            }
+        }
+    }
+
+    yyjson_val *metadata = yyjson_obj_get(root, "metadata");
+    if (metadata) {
+        const char *name = yyjson_get_str(yyjson_obj_get(metadata, "name"));
+        if (name) recp->metadata.name = strdup(name);
+
+        const char *ver = yyjson_get_str(yyjson_obj_get(metadata, "version"));
+        if (ver) recp->metadata.version = strdup(ver);
+
+        yyjson_val *prio = yyjson_obj_get(metadata, "priority");
+        if (prio) recp->metadata.priority = yyjson_get_int(prio);
+    }
+
+    yyjson_val *code = yyjson_obj_get(root, "code");
+    if (code){
+        const char **sources_arr = json_arr_to_strlist(yyjson_obj_get(code, "sources"));
+        if (sources_arr) recp->sources.sources = sources_arr;
+
+        const char **includes_arr = json_arr_to_strlist(yyjson_obj_get(code, "includes"));
+        if (includes_arr) {
+            recp->sources.incl_dirs = includes_arr;
         }
 
-        printf("[axle] entering build system mode\n");
+        const char **libraries_arr = json_arr_to_strlist(yyjson_obj_get(code, "libraries"));
+        if (libraries_arr) recp->sources.libs = libraries_arr;
 
-        char *dir = NULL;
-        uax_ip_strextend(&dir, argv[2]);
-        if (argv[2][strlen(argv[2]) - 1] != '/')
-            uax_ip_strextend(&dir, "/");
+        const char **libdirs_arr = json_arr_to_strlist(yyjson_obj_get(code, "lib-dirs"));
+        if (libdirs_arr) recp->sources.lib_dirs = libdirs_arr;
 
-        char *path = NULL;
-        uax_ip_strextend(&path, argv[2]);
-        if (argv[2][strlen(argv[2]) - 1] != '/')
-            uax_ip_strextend(&path, "/");
-        uax_ip_strextend(&path, "build.c");
+        const char **packages_arr = json_arr_to_strlist(yyjson_obj_get(code, "packages"));
+        if (packages_arr) recp->sources.pkgs = packages_arr;
 
-        fprintf(stderr, "[axle] path for build.c: %s\n", path);
+        const char *output = yyjson_get_str(yyjson_obj_get(code, "output"));
+        if (output) recp->output.path = strdup(output);
+    }
 
-        struct stat st;
-        if (0 > stat(path, &st)){
-            fprintf(stderr, "[axle] build.c was not found\n");
-            free(path);
-            free(dir);
+    if (target_name) {
+        yyjson_val *targets = yyjson_obj_get(root, "targets");
+        yyjson_val *targ = yyjson_obj_get(targets, target_name);
+        if (targ) {
+            recp->target.optimize = parse_optimization(yyjson_get_str(yyjson_obj_get(targ, "optimization")));
 
-            return 1;
+            const char **flags_arr = json_arr_to_strlist(yyjson_obj_get(targ, "flags"));
+            if (flags_arr) {
+                recp->target.flags = uax_concat(flags_arr, " ", NULL);
+                uax_free_strlist_ne((char***)&flags_arr);
+            }
+
+            recp->target.defines = parse_defines(yyjson_obj_get(targ, "defines"));
+        } else {
+            fprintf(stderr, "[warn] target '%s' not found in %s\n", target_name, defaults_path);
         }
-        free(path);
+    }
 
-        char bplate_file[100];
-        strcpy(bplate_file, dir);
-        strcpy(bplate_file + strlen(bplate_file), ".axle_gen");
-        sprintf(bplate_file + strlen(bplate_file), "%d.c", token);
-        printf("[axle] boilerplate file: %s\n", bplate_file);
-        free(dir);
+    yyjson_doc_free(doc);
+}
 
-        FILE *bpl = fopen(bplate_file, "w");
-        if (!bpl) {
-            fprintf(stderr, "[axle] failed to write data to boilerplate file\n");
-            return -1;
-        }
+int main() {
+    const char *path = "./test/code/module.json";
+    char *dir_path = uax_path_get_dir(path);
 
-        fprintf(bpl, "%s\n", boilerplate);
-        fclose(bpl);
+    yyjson_read_err err;
+    yyjson_doc *doc = yyjson_read_file(path, 0, NULL, &err);
 
-        char *cmd = NULL;
-        uax_ip_strextend(&cmd, "cd ");
-        uax_ip_strextend(&cmd, argv[2]);
-        uax_ip_strextend(&cmd, " && gcc -o ");
+    if (!doc) {
+        fprintf(stderr, "[axle] read error (%u): %s at position: %ld\n", err.code, err.msg, err.pos);
+        return -1;
+    }
 
-        char exec_file[100];
-        strcpy(exec_file, "/tmp/axle_execfile");
-        sprintf(exec_file + strlen(exec_file), "%d", token);
-        uax_ip_strextend(&cmd, exec_file);
-        uax_ip_strextend(&cmd, " ");
-        uax_ip_strextend(&cmd, bplate_file);
+    yyjson_val *root = yyjson_doc_get_root(doc);
 
-        printf("[axle] command: %s\n", cmd);
-        free(cmd);
+    axle_receipt recp;
+    memset(&recp, 0, sizeof(axle_receipt));
 
-        return 0;
+    const char *defaults_file = yyjson_get_str(yyjson_obj_get(root, "defaults"));
+    const char *target_name = yyjson_get_str(yyjson_obj_get(root, "target"));
+
+    if (defaults_file) {
+        char *def_path = uax_path_concat(dir_path, defaults_file);
+        printf("[axle] defaults: %s\n", def_path);
+        load_settings(&recp, def_path, target_name);
+        free(def_path);
+    }
+
+    load_settings(&recp, path, NULL);
+    yyjson_doc_free(doc);
+
+    if (0 == axle_build(&recp, dir_path, false)){
+        printf("[axle] build successfull\n");
     } else {
-        fprintf(stderr, "[axle] unknown command \"%s\", use %s help to get usage\n", argv[1], argv[0]);
-        return 1;
+        printf("[axle] build failed\n");
     }
+    clean_axle_receipt(&recp);
 
-    printf("[axle] exit\n");
+    free(dir_path);
     return 0;
 }

@@ -2,7 +2,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+void uax_free_strlist_ne(char* **_strlist){
+    if (!_strlist || !*_strlist) return;
+    for (size_t i = 0; (*_strlist)[i] != 0; i++) {
+        if ((*_strlist)[i])
+            free((*_strlist)[i]);
+    }
+    free(*_strlist);
+    *_strlist = NULL;
+}
+
 char *uax_concat(const char **input_strs, const char *concat_str, const char *prefix_str){
+    if (!input_strs || !input_strs[0]) return NULL;
+
     size_t comb_len = 0;
     size_t n = 0;
 
@@ -12,7 +24,7 @@ char *uax_concat(const char **input_strs, const char *concat_str, const char *pr
                     (prefix_str ? strlen(prefix_str): 0);
     }
 
-    char *output = malloc(comb_len + 1);
+    char *output = calloc(comb_len + 1, 1);
 
     size_t offset = 0;
     for (n = 0; input_strs[n] != 0; n++){
@@ -60,5 +72,30 @@ int uax_ip_strextend(char **origin, const char *appendix){
         free(*origin);
     *origin = extended;
 
+    return 0;
+}
+
+void uax_free_strlist(char* **_strlist, size_t *n){
+    if (!_strlist || !*_strlist) return;
+    for (size_t i = 0; i < *n; i++) {
+        if ((*_strlist)[i])
+            free((*_strlist)[i]);
+    }
+    free(*_strlist);
+    *_strlist = NULL;
+    *n = 0;
+}
+
+int uax_strlist_extend(char ***origin, size_t *n, const char *appendix){
+    // if (!appendix) return 0;
+
+    char **tmp = realloc(*origin, sizeof(char*) * (*n + 1));
+    if (!tmp) return -1;
+
+    *origin = tmp;
+    (*origin)[*n] = appendix? strdup(appendix): NULL;
+    if (!(*origin)[*n] && appendix) return -1;
+
+    (*n)++;
     return 0;
 }

@@ -6,17 +6,18 @@
 
 #include "stdio.h"
 #include <stdlib.h>
+#include <sys/stat.h>
 
 
 #define AXLE_VERSION "v0.0.1"
 
-static int axle_compile_sources(const axle_receipt *receipt);
+static int axle_compile_sources(const axle_receipt *receipt, const char *base_path);
 
-static int axle_link_executable(const axle_receipt *receipt);
-static int axle_link_static_lib(const axle_receipt *receipt);
-static int axle_link_dynamic_lib(const axle_receipt *receipt);
+static int axle_link_executable(const axle_receipt *receipt, const char *base_path);
+static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path);
+static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_path);
 
-int axle_build(const axle_receipt *receipt, bool hide_greeting){
+int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting){
     (void)receipt;
 
     if (!hide_greeting)
@@ -29,7 +30,31 @@ int axle_build(const axle_receipt *receipt, bool hide_greeting){
 
     int ret = 0;
 
-    ret = axle_compile_sources(receipt);
+    char *obj_path = uax_path_concat(base_path, receipt->output.obj_path);
+    struct stat st;
+    if (stat(obj_path, &st) != 0){
+        int status = mkdir(obj_path, 0755);
+        if (status != 0) {
+            fprintf(stderr, "[axle] failed to build project, cannot create object files (objs) directory: %s\n", obj_path);
+            return -1;
+        }
+    }
+    free(obj_path);
+
+    char *out_path_file = uax_path_concat(base_path, receipt->output.path);
+    char *out_path = uax_path_get_dir(out_path_file);
+    free(out_path_file);
+
+    if (stat(out_path, &st) != 0){
+        int status = mkdir(out_path, 0755);
+        if (status != 0) {
+            fprintf(stderr, "[axle] failed to build project, cannot create output files (bin) directory: %s\n", out_path);
+            return -1;
+        }
+    }
+    free(out_path);
+
+    ret = axle_compile_sources(receipt, base_path);
     if (ret < 0){
         fprintf(stderr, "[axle] failed to build project at source compilation stage, code: %d\n", ret);
         return -1;
@@ -38,15 +63,15 @@ int axle_build(const axle_receipt *receipt, bool hide_greeting){
     switch (receipt->output.type){
         case EXECUTABLE:
             printf("[axle] linking executable\n");
-            ret = axle_link_executable(receipt);
+            ret = axle_link_executable(receipt, base_path);
             break;
         case DYN_LIBRARY:
             printf("[axle] linking dynamic library\n");
-            ret = axle_link_dynamic_lib(receipt);
+            ret = axle_link_dynamic_lib(receipt, base_path);
             break;
         case STATIC_LIBRARY:
             printf("[axle] linking static library\n");
-            ret = axle_link_static_lib(receipt);
+            ret = axle_link_static_lib(receipt, base_path);
             break;
 
         default: break;
@@ -72,16 +97,31 @@ static const char *axle_decr_optimization(axb_optilevel level){
     return "O0";
 }
 
-static int axle_compile_sources(const axle_receipt *receipt){
+static int axle_compile_sources(const axle_receipt *receipt, const char *base_path){
     const axle_sources *sources = &receipt->sources;
     if (!sources->sources){
         fprintf(stderr, "[axle][compilation] no sources given\n");
         return -1;
     }
 
+    char **out_sources = NULL;
+    size_t src_sz = 0;
+    uax_expand_files(base_path, sources->sources, &out_sources, &src_sz);
+
+    char **out_incls = NULL;
+    size_t incls_sz = 0;
+    if (sources->incl_dirs) {
+
+        uax_expand_files(base_path, sources->incl_dirs, &out_incls, &incls_sz);
+        uax_strlist_extend(&out_incls, &incls_sz, 0);
+    }
+
     char *_cmb_includes = sources->incl_dirs ? uax_concat(
-        sources->incl_dirs, " ", "-I"
+        (const char **)out_incls, " ", "-I"
     ): NULL;
+
+    if (incls_sz != 0)
+        uax_free_strlist(&out_incls, &incls_sz);
 
     char *_cmb_pkgs_cflags = sources->pkgs ? uax_concat(
         sources->pkgs, ") ", " $(pkg-config --cflags "
@@ -91,9 +131,10 @@ static int axle_compile_sources(const axle_receipt *receipt){
         receipt->target.defines, " ", " -D"
     ): NULL;
 
-    for (int i = 0; 0 != sources->sources[i]; i++){
-        const char *_this_source = sources->sources[i];
-        // printf("[axle][compilation] path: %s\n", _this_source);
+    char *obj_path = uax_path_concat(base_path, receipt->output.obj_path);
+
+    for (size_t i = 0; i < src_sz; i++){
+        const char *_this_source = out_sources[i];
 
         char *cmd = NULL;
 
@@ -129,8 +170,10 @@ static int axle_compile_sources(const axle_receipt *receipt){
         uax_ip_strextend(&cmd, " -o ");
 
         char *changed = uax_path_change_ext(_this_source, "o");
+        // printf("[axle][compilation] path: %s -> %s\n", _this_source, changed);
+
         char *cropped = uax_strrepl(changed, '/', '_');
-        char *o_path  = uax_path_concat(receipt->output.obj_path, cropped);
+        char *o_path  = uax_path_concat(obj_path, cropped);
 
         uax_ip_strextend(&cmd, o_path);
         free(cropped);
@@ -152,11 +195,15 @@ ok:
     if (_cmb_includes) free(_cmb_includes);
     if (_cmb_pkgs_cflags) free(_cmb_pkgs_cflags);
     if (_cmb_defines) free(_cmb_defines);
+    free(obj_path);
+    uax_free_strlist(&out_sources, &src_sz);
     return 0;
 fail:
     if (_cmb_includes) free(_cmb_includes);
     if (_cmb_pkgs_cflags) free(_cmb_pkgs_cflags);
     if (_cmb_defines) free(_cmb_defines);
+    free(obj_path);
+    uax_free_strlist(&out_sources, &src_sz);
     return -1;
 }
 
@@ -167,16 +214,23 @@ typedef struct {
     char *_cmb_pkgs_libs;
 } _axle_link_metadata;
 
-static _axle_link_metadata axle_link_metadata(const axle_receipt *receipt){
+static _axle_link_metadata axle_link_metadata(const axle_receipt *receipt, const char *base_path){
     char *_cmb_sources = NULL;
 
     const axle_sources *sources = &receipt->sources;
-    for (int i = 0; 0 != sources->sources[i]; i++){
-        const char *_this_source = sources->sources[i];
+
+    char **out_sources = NULL;
+    size_t src_sz = 0;
+    uax_expand_files(base_path, sources->sources, &out_sources, &src_sz);
+
+    char *obj_path = uax_path_concat(base_path, receipt->output.obj_path);
+
+    for (size_t i = 0; i < src_sz; i++){
+        const char *_this_source = out_sources[i];
 
         char *changed = uax_path_change_ext(_this_source, "o");
         char *cropped = uax_strrepl(changed, '/', '_');
-        char *o_path  = uax_path_concat(receipt->output.obj_path, cropped);
+        char *o_path  = uax_path_concat(obj_path, cropped);
         free(changed);
         free(cropped);
 
@@ -186,11 +240,25 @@ static _axle_link_metadata axle_link_metadata(const axle_receipt *receipt){
         // printf("[axle][linking] path for .o: %s\n", o_path);
         free(o_path);
     }
+    uax_free_strlist(&out_sources, &src_sz);
+    free(obj_path);
+
     printf("[axle][linking] .o paths: %s\n", _cmb_sources);
 
+    char **out_libs = NULL;
+    size_t libs_sz = 0;
+    if (sources->lib_dirs) {
+
+        uax_expand_files(base_path, sources->lib_dirs, &out_libs, &libs_sz);
+        uax_strlist_extend(&out_libs, &libs_sz, 0);
+    }
+
     char *_cmb_libdirs = sources->lib_dirs ? uax_concat(
-        sources->lib_dirs, " ", "-L"
+        (const char **)out_libs, " ", "-L"
     ): NULL;
+
+    if (out_libs)
+        uax_free_strlist(&out_libs, &libs_sz);
 
     char *_cmb_libs = sources->libs ? uax_concat(
         sources->libs, " ", "-l"
@@ -208,8 +276,8 @@ static _axle_link_metadata axle_link_metadata(const axle_receipt *receipt){
     };
 }
 
-static int axle_link_executable(const axle_receipt *receipt){
-    _axle_link_metadata md = axle_link_metadata(receipt);
+static int axle_link_executable(const axle_receipt *receipt, const char *base_path){
+    _axle_link_metadata md = axle_link_metadata(receipt, base_path);
 
     char *cmd = NULL;
     uax_ip_strextend(&cmd, receipt->compiler);
@@ -219,10 +287,13 @@ static int axle_link_executable(const axle_receipt *receipt){
         uax_ip_strextend(&cmd, receipt->target.flags);
     }
 
+    char *output_path = uax_path_concat(base_path, receipt->output.path);
+
     uax_ip_strextend(&cmd, " -o ");
-    uax_ip_strextend(&cmd, receipt->output.path);
+    uax_ip_strextend(&cmd, output_path);
     uax_ip_strextend(&cmd, " ");
     uax_ip_strextend(&cmd, md._cmb_sources);
+    free(output_path);
 
     if (md._cmb_libdirs) {
         uax_ip_strextend(&cmd, md._cmb_libdirs);
@@ -251,14 +322,17 @@ static int axle_link_executable(const axle_receipt *receipt){
     return 0;
 }
 
-static int axle_link_static_lib(const axle_receipt *receipt){
-    _axle_link_metadata md = axle_link_metadata(receipt);
+static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path){
+    _axle_link_metadata md = axle_link_metadata(receipt, base_path);
+
+    char *output_path = uax_path_concat(base_path, receipt->output.path);
 
     char *cmd = NULL;
     uax_ip_strextend(&cmd, "ar rcs ");
-    uax_ip_strextend(&cmd, receipt->output.path);
+    uax_ip_strextend(&cmd, output_path);
     uax_ip_strextend(&cmd, ".a ");
     uax_ip_strextend(&cmd, md._cmb_sources);
+    free(output_path);
 
     free(md._cmb_sources);
     if (md._cmb_pkgs_libs) free(md._cmb_pkgs_libs);
@@ -277,8 +351,8 @@ static int axle_link_static_lib(const axle_receipt *receipt){
     return 0;
 }
 
-static int axle_link_dynamic_lib(const axle_receipt *receipt){
-    _axle_link_metadata md = axle_link_metadata(receipt);
+static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_path){
+    _axle_link_metadata md = axle_link_metadata(receipt, base_path);
 
     char *cmd = NULL;
     uax_ip_strextend(&cmd, receipt->compiler);
@@ -288,10 +362,14 @@ static int axle_link_dynamic_lib(const axle_receipt *receipt){
         uax_ip_strextend(&cmd, receipt->target.flags);
     }
 
+    char *output_path = uax_path_concat(base_path, receipt->output.path);
+
     uax_ip_strextend(&cmd, " -shared -o ");
-    uax_ip_strextend(&cmd, receipt->output.path);
+    uax_ip_strextend(&cmd, output_path);
     uax_ip_strextend(&cmd, ".so ");
     uax_ip_strextend(&cmd, md._cmb_sources);
+
+    free(output_path);
 
     if (md._cmb_libdirs) {
         uax_ip_strextend(&cmd, md._cmb_libdirs);

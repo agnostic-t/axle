@@ -1,0 +1,20 @@
+{
+  "compiler": {
+    "cc": "gcc",
+    "objects_path": ".objs"
+  },
+
+  "targets": {
+    "release": {
+      "flags": [],
+      "defines": [{ "MODE": "RELEASE" }],
+      "optimization": "O3"
+    },
+
+    "debug": {
+      "flags": ["-fsanitize=address", "-g"],
+      "defines": [{ "MODE": "RELEASE" }],
+      "optimization": "O1"
+    }
+  }
+}

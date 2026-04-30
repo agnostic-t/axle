@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "name": "Main module",
+    "version": "0.0.0"
+  },
+
+  "compiler": {
+    "binary": "executable"
+  },
+
+  "code": {
+    "sources": ["*.c", "**/*.c"],
+    "includes": ["include"],
+    "output": "./bin/main"
+  },
+
+  "dependencies": {
+    "base": { "version": ">=0.0.0" },
+    "git-test": {
+      "url": "https://github.com/agnostic-t/axle-module.git",
+      "version": ">=0.1.0"
+    }
+  },
+
+  "target": "debug",
+  "defaults": "defaults.json"
+}
