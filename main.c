@@ -77,6 +77,17 @@ int build(const char *path){
 
     printf("%s[axle] deps all built%s\n", xfore.green, xfore.normal);
 
+    if (recp.only_deps){
+        printf("%s[axle] build done%s only dependencies were built\n", xfore.green, xfore.normal);
+        free(directory);
+        clean_axle_receipt(&recp);
+
+        for (size_t i = 0; i < mods_n; i++) clean_axle_receipt(&mod_receipts[i]);
+        free(mod_receipts);
+
+        return 0;
+    }
+
     int ret = 0;
     if (0 > axle_build(&recp, directory, true)){
         fprintf(stderr, "%s[axle] failed%s to build main module\n", xfore.red, xfore.normal);

@@ -29,7 +29,6 @@ static int _needs_rebuild(const char *source_file, const char *obj_file) {
 }
 
 int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting){
-    (void)receipt;
 
     if (!hide_greeting)
         printf("[axle] version " AXLE_VERSION "\n");
@@ -71,6 +70,7 @@ int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_gre
         return -1;
     }
 
+
     switch (receipt->output.type){
         case EXECUTABLE:
             printf("[axle] linking %sexecutable%s\n", xfore.yellow, xfore.normal);
@@ -110,9 +110,12 @@ static const char *axle_decr_optimization(axb_optilevel level){
 
 static int axle_compile_sources(const axle_receipt *receipt, const char *base_path){
     const axle_sources *sources = &receipt->sources;
-    if (!sources->sources){
+    if (!sources->sources && !receipt->only_deps){
         fprintf(stderr, "%s[axle][compilation] no sources given%s\n", xfore.red, xfore.normal);
         return -1;
+    } else if (receipt->only_deps){
+        printf("[axle][compilation] only deps specified, %sskipping compilation%s\n", xfore.magenta, xfore.normal);
+        return 0;
     }
 
     char **out_sources = NULL;

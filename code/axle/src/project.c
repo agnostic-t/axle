@@ -65,6 +65,7 @@ int axle_project_prepare(const char *directory, const char *adt_defaults, axle_r
 
     const char *defaults_file = yyjson_get_str(yyjson_obj_get(root, "defaults"));
     const char *target_name = yyjson_get_str(yyjson_obj_get(root, "target"));
+    bool is_only_deps = yyjson_get_bool(yyjson_obj_get(root, "only-deps"));
 
     if (defaults_file) {
         char *def_path = uax_path_concat(dir_path, defaults_file);
@@ -79,6 +80,7 @@ int axle_project_prepare(const char *directory, const char *adt_defaults, axle_r
     }
 
     axle_load_settings(outrecp, directory, NULL);
+    outrecp->only_deps = is_only_deps;
     yyjson_doc_free(doc);
 
     free(dir_path);

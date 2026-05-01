@@ -2,6 +2,7 @@
 #define AXLE_SETTINGS_H
 
 #include "types.h"
+#include <stdbool.h>
 #include <stddef.h>
 
 typedef struct {
@@ -49,6 +50,7 @@ typedef struct {
 
     axle_metadata metadata;
 
+    bool             only_deps;
     axle_dependency *dependencies;
     size_t           deps_n;
 } axle_receipt;
