@@ -3,11 +3,12 @@
 #include "axle/settings.h"
 #include "axle/types.h"
 #include "axle/string_utils.h"
+#include "axle/colors.h"
 
 #include "stdio.h"
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
-
 
 #define AXLE_VERSION "v0.0.1"
 
@@ -16,6 +17,16 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
 static int axle_link_executable(const axle_receipt *receipt, const char *base_path);
 static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path);
 static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_path);
+
+static int _needs_rebuild(const char *source_file, const char *obj_file) {
+    struct stat src_stat, obj_stat;
+
+    if (stat(source_file, &src_stat) != 0) return -1;
+    if (stat(obj_file, &obj_stat) != 0)    return 1;
+    if (src_stat.st_mtime > obj_stat.st_mtime) return 1;
+
+    return 0;
+}
 
 int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting){
     (void)receipt;
@@ -35,7 +46,7 @@ int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_gre
     if (stat(obj_path, &st) != 0){
         int status = mkdir(obj_path, 0755);
         if (status != 0) {
-            fprintf(stderr, "[axle] failed to build project, cannot create object files (objs) directory: %s\n", obj_path);
+            fprintf(stderr, "%s[axle] failed to build project%s, cannot create object files (objs) directory: %s\n", xfore.red, xfore.normal, obj_path);
             return -1;
         }
     }
@@ -48,7 +59,7 @@ int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_gre
     if (stat(out_path, &st) != 0){
         int status = mkdir(out_path, 0755);
         if (status != 0) {
-            fprintf(stderr, "[axle] failed to build project, cannot create output files (bin) directory: %s\n", out_path);
+            fprintf(stderr, "%s[axle] failed to build project%s, cannot create output files (bin) directory: %s\n", xfore.red, xfore.normal, out_path);
             return -1;
         }
     }
@@ -56,21 +67,21 @@ int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_gre
 
     ret = axle_compile_sources(receipt, base_path);
     if (ret < 0){
-        fprintf(stderr, "[axle] failed to build project at source compilation stage, code: %d\n", ret);
+        fprintf(stderr, "%s[axle] failed to build project%s at source compilation stage, code: %d\n", xfore.red, xfore.normal, ret);
         return -1;
     }
 
     switch (receipt->output.type){
         case EXECUTABLE:
-            printf("[axle] linking executable\n");
+            printf("[axle] linking %sexecutable%s\n", xfore.yellow, xfore.normal);
             ret = axle_link_executable(receipt, base_path);
             break;
         case DYN_LIBRARY:
-            printf("[axle] linking dynamic library\n");
+            printf("[axle] linking %sdynamic library%s\n", xfore.yellow, xfore.normal);
             ret = axle_link_dynamic_lib(receipt, base_path);
             break;
         case STATIC_LIBRARY:
-            printf("[axle] linking static library\n");
+            printf("[axle] linking %sstatic library%s\n", xfore.yellow, xfore.normal);
             ret = axle_link_static_lib(receipt, base_path);
             break;
 
@@ -78,7 +89,7 @@ int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_gre
     }
 
     if (ret < 0){
-        fprintf(stderr, "[axle] failed to build project at linking stage, code: %d\n", ret);
+        fprintf(stderr, "%s[axle] failed to build project%s at linking stage, code: %d\n", xfore.red, xfore.normal, ret);
         return -1;
     }
 
@@ -100,7 +111,7 @@ static const char *axle_decr_optimization(axb_optilevel level){
 static int axle_compile_sources(const axle_receipt *receipt, const char *base_path){
     const axle_sources *sources = &receipt->sources;
     if (!sources->sources){
-        fprintf(stderr, "[axle][compilation] no sources given\n");
+        fprintf(stderr, "%s[axle][compilation] no sources given%s\n", xfore.red, xfore.normal);
         return -1;
     }
 
@@ -111,7 +122,6 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
     char **out_incls = NULL;
     size_t incls_sz = 0;
     if (sources->incl_dirs) {
-
         uax_expand_files(base_path, sources->incl_dirs, &out_incls, &incls_sz);
         uax_strlist_extend(&out_incls, &incls_sz, 0);
     }
@@ -137,6 +147,26 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
         const char *_this_source = out_sources[i];
 
         char *cmd = NULL;
+
+        char *changed = uax_path_change_ext(_this_source, "o");
+        char *cropped = uax_strrepl(changed, '/', '_');
+        char *o_path  = uax_path_concat(obj_path, cropped);
+
+        int nr_ret = _needs_rebuild(_this_source, o_path);
+        if (nr_ret == -1) {
+            fprintf(stderr, "%s[axle][compilation] failed to get information%s about files\n", xfore.red, xfore.normal);
+            free(cropped);
+            free(changed);
+            free(o_path);
+            goto fail;
+        } else if (nr_ret == 0){
+            printf("[axle][compilation] %sskipping %s%s, already up to date\n", xfore.magenta, _this_source, xfore.normal);
+
+            free(cropped);
+            free(changed);
+            free(o_path);
+            continue;
+        }
 
         uax_ip_strextend(&cmd, receipt->compiler);
 
@@ -168,24 +198,18 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
         uax_ip_strextend(&cmd, " -c ");
         uax_ip_strextend(&cmd, _this_source);
         uax_ip_strextend(&cmd, " -o ");
-
-        char *changed = uax_path_change_ext(_this_source, "o");
-        // printf("[axle][compilation] path: %s -> %s\n", _this_source, changed);
-
-        char *cropped = uax_strrepl(changed, '/', '_');
-        char *o_path  = uax_path_concat(obj_path, cropped);
-
         uax_ip_strextend(&cmd, o_path);
+
         free(cropped);
         free(changed);
         free(o_path);
 
-        printf("[axle][compilation] command: %s\n", cmd);
+        printf("[axle][compilation] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
         int ret = system(cmd);
         free(cmd);
 
         if (0 != ret){
-            fprintf(stderr, "[axle][compilation] failed to execute compilation command. Exit code: %d\n", ret);
+            fprintf(stderr, "%s[axle][compilation] failed to execute compilation command%s. Exit code: %d\n", xfore.red, xfore.normal, ret);
 
             goto fail;
         }
@@ -310,12 +334,12 @@ static int axle_link_executable(const axle_receipt *receipt, const char *base_pa
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s\n", cmd);
+    printf("[axle][link] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
     if (ret != 0){
-        fprintf(stderr, "[axle][linking] failed to execute linking command. Exit code: %d\n", ret);
+        fprintf(stderr, "%s[axle][linking] failed to execute linking%s command. Exit code: %d\n", xfore.red, xfore.normal, ret);
         return -1;
     }
 
@@ -325,7 +349,23 @@ static int axle_link_executable(const axle_receipt *receipt, const char *base_pa
 static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path){
     _axle_link_metadata md = axle_link_metadata(receipt, base_path);
 
-    char *output_path = uax_path_concat(base_path, receipt->output.path);
+    char *_dirname = uax_path_get_dir(receipt->output.path);
+    const char *filename = uax_path_filename(receipt->output.path);
+
+    char *libname = NULL;
+    if (strncmp(filename, "lib", 3) != 0){
+        libname = malloc(1 + 3 + strlen(filename));
+        strcpy(libname, "lib");
+        strcpy(libname + 3, filename);
+    } else {
+        libname = strdup(filename);
+    }
+
+    char *lib_path = uax_path_concat(_dirname, libname);
+    char *output_path = uax_path_concat(base_path, lib_path);
+    free(lib_path);
+    free(libname);
+    free(_dirname);
 
     char *cmd = NULL;
     uax_ip_strextend(&cmd, "ar rcs ");
@@ -339,12 +379,12 @@ static int axle_link_static_lib(const axle_receipt *receipt, const char *base_pa
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s\n", cmd);
+    printf("[axle][link] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
     if (ret != 0){
-        fprintf(stderr, "[axle][linking] failed to execute linking command. Exit code: %d\n", ret);
+        fprintf(stderr, "%s[axle][linking] failed to execute linking%s command. Exit code: %d\n", xfore.red, xfore.normal, ret);
         return -1;
     }
 
@@ -362,7 +402,23 @@ static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_p
         uax_ip_strextend(&cmd, receipt->target.flags);
     }
 
-    char *output_path = uax_path_concat(base_path, receipt->output.path);
+    char *_dirname = uax_path_get_dir(receipt->output.path);
+    const char *filename = uax_path_filename(receipt->output.path);
+
+    char *libname = NULL;
+    if (strncmp(filename, "lib", 3) != 0){
+        libname = malloc(1 + 3 + strlen(filename));
+        strcpy(libname, "lib");
+        strcpy(libname + 3, filename);
+    } else {
+        libname = strdup(filename);
+    }
+
+    char *lib_path = uax_path_concat(_dirname, libname);
+    char *output_path = uax_path_concat(base_path, lib_path);
+    free(lib_path);
+    free(libname);
+    free(_dirname);
 
     uax_ip_strextend(&cmd, " -shared -o ");
     uax_ip_strextend(&cmd, output_path);
@@ -386,12 +442,12 @@ static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_p
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s\n", cmd);
+    printf("[axle][link] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
     if (ret != 0){
-        fprintf(stderr, "[axle][linking] failed to execute linking command. Exit code: %d\n", ret);
+        fprintf(stderr, "%s[axle][linking] failed to execute linking%s command. Exit code: %d\n", xfore.red, xfore.normal, ret);
         return -1;
     }
 

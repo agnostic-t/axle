@@ -2,6 +2,7 @@
 #define AXLE_SETTINGS_H
 
 #include "types.h"
+#include <stddef.h>
 
 typedef struct {
     const char *name;
@@ -36,12 +37,20 @@ typedef struct {
 } axle_output;
 
 typedef struct {
+    int major, middle, minor;
+    const char *name;
+} axle_dependency;
+
+typedef struct {
     const char  *compiler;
     axle_target  target;
     axle_sources sources;
     axle_output  output;
 
     axle_metadata metadata;
+
+    axle_dependency *dependencies;
+    size_t           deps_n;
 } axle_receipt;
 
 #endif

@@ -99,3 +99,22 @@ int uax_strlist_extend(char ***origin, size_t *n, const char *appendix){
     (*n)++;
     return 0;
 }
+
+int uax_strlist_extend_ne(char ***origin, const char *appendix){
+    size_t n = 0;
+    if (*origin){
+        for (size_t i = 0; (*origin)[i] != 0; i++)
+            n++;
+    }
+
+    char **tmp = realloc(*origin, sizeof(char*) * (n + 2));
+    if (!tmp) return -1;
+
+    *origin = tmp;
+    (*origin)[n] = appendix? strdup(appendix): NULL;
+    (*origin)[n + 1] = NULL;
+
+    if (!(*origin)[n] && appendix) return -1;
+
+    return 0;
+}

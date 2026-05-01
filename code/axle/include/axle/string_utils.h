@@ -13,5 +13,6 @@ void uax_free_strlist(char* **_strlist, size_t *n);
 void uax_free_strlist_ne(char* **_strlist);
 
 int uax_strlist_extend(char ***origin, size_t *n, const char *appendix);
+int uax_strlist_extend_ne(char ***origin, const char *appendix);
 
 #endif

@@ -36,4 +36,12 @@ void clean_axle_receipt(axle_receipt *recp){
     clean_axle_sources(&recp->sources);
     clean_axle_output(&recp->output);
     clean_axle_metadata(&recp->metadata);
+
+    for (size_t i = 0; i < recp->deps_n; i++){
+        free((void*)recp->dependencies[i].name);
+    }
+    if (recp->dependencies)
+        free(recp->dependencies);
+    recp->dependencies = NULL;
+    recp->deps_n = 0;
 }

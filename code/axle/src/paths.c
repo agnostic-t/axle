@@ -1,4 +1,5 @@
 #include "axle/path_utils.h"
+#include "axle/string_utils.h"
 #include <linux/limits.h>
 #include <glob.h>
 #include <sys/stat.h>
@@ -254,4 +255,57 @@ int uax_expand_files(const char *base_dir, const char **path_list, char ***out_p
     }
 
     return 0;
+}
+
+int uax_expand_subdirs(const char *base_dir, char ***out_paths, size_t *out_n) {
+    DIR *dir = opendir(base_dir);
+    if (!dir) {
+        fprintf(stderr, "[uax] failed to open directory: %s\n", base_dir);
+        return -1;
+    }
+
+    struct dirent *entry;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        if (entry->d_type == DT_DIR) {
+            // printf("Found directory (fast): %s\n", entry->d_name);
+            uax_strlist_extend(out_paths, out_n, entry->d_name);
+            continue;
+        }
+
+        if (entry->d_type == DT_UNKNOWN) {
+            char full_path[512];
+            snprintf(full_path, sizeof(full_path), "%s/%s", base_dir, entry->d_name);
+
+            struct stat st;
+            if (stat(full_path, &st) == 0) {
+                if (S_ISDIR(st.st_mode)) {
+                    // printf("Found directory (stat): %s\n", entry->d_name);
+                    uax_strlist_extend(out_paths, out_n, entry->d_name);
+                }
+            }
+        }
+    }
+
+    closedir(dir);
+    return 0;
+}
+
+const char *uax_path_filename(const char* path){
+    if (!path || !(*path)) return NULL;
+
+    const char *filename = path;
+    const char *last_slash = strrchr(filename, '/');
+    if (last_slash) {
+        filename = last_slash + 1;
+        if (*filename == '\0') {
+            filename = NULL;
+        }
+    }
+
+    return filename;
 }
