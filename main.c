@@ -114,6 +114,21 @@ fail:
     return -1;
 }
 
+
+const char *template =
+"{\n"
+"  \"metadata\": {\n"
+"    \"name\": \"%s\",\n"
+"    \"version\": \"0.0.0\"\n"
+"  },\n\n"
+"  \"code\": {\n"
+"    \"sources\": [\"**/*.c\"],\n"
+"    \"output\": \"./bin/%s\",\n"
+"    \"includes\": [\"include\"]\n"
+"  },\n\n"
+"  \"target\": \"debug\"\n"
+"}";
+
 int main(int argc, const char *argv[]) {
     const char *path = "./test/code/module.json";
 
@@ -122,8 +137,9 @@ int main(int argc, const char *argv[]) {
             stderr,
             "axle - build system\n"
             "version: 0.0.1\n"
-            "\tusage: %s build|help PATH\n\n"
+            "\tusage: %s build|module|help PATH|NAME\n\n"
             "build:PATH - path to directory with project (module.json file)\n"
+            "module:NAME - name of the module. Will be place in ./.modules/<name>\n"
             "help - print this help message and exit\n",
             argv[0]
         );
@@ -140,6 +156,35 @@ int main(int argc, const char *argv[]) {
 
         build(argv[2]);
 
+    } else if (strcmp("module", argv[1]) == 0) {
+        if (argc != 3){
+            fprintf(stderr, "[axle] invalid usage, no name provided\n");
+            return -1;
+        }
+
+        mkdir("./.modules", 0755);
+
+        char *mod_dir = uax_path_concat("./.modules", argv[2]);
+        mkdir(mod_dir, 0755);
+
+        char *incl_dir = uax_path_concat(mod_dir, "include");
+        char *bin_dir  = uax_path_concat(mod_dir, "bin");
+        char *src_dir  = uax_path_concat(mod_dir, "src");
+
+        mkdir(incl_dir, 0755); free(incl_dir);
+        mkdir(bin_dir, 0755); free(bin_dir);
+        mkdir(src_dir, 0755); free(src_dir);
+
+        char *mod_json_file = uax_path_concat(mod_dir, "module.json");
+
+        printf("[axle] made all directories\n");
+        FILE *module_json = fopen(mod_json_file, "w");
+        fprintf(module_json, template, argv[2], argv[2]);
+        fclose(module_json);
+
+        free(mod_json_file);
+        free(mod_dir);
+        printf("[axle] filled template\n");
     } else {
         fprintf(stderr, "[axle] invalid usage, consider running %s help\n", argv[0]);
         return -1;
