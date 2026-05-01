@@ -118,6 +118,7 @@ int axle_load_settings(axle_receipt *recp, const char *defaults_path, const char
 
         yyjson_val *prio = yyjson_obj_get(metadata, "priority");
         if (prio) recp->metadata.priority = yyjson_get_int(prio);
+        else recp->metadata.priority = 1000;
     }
 
     yyjson_val *code = yyjson_obj_get(root, "code");

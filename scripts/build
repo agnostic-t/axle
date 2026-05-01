@@ -2,8 +2,8 @@
 # set -e
 
 CC="gcc"
-CFLAGS="-g -fsanitize=address"
-LDFLAGS="-g -fsanitize=address -lyyjson"
+CFLAGS="" # -fsanitize=address -g
+LDFLAGS=" -lyyjson" # -fsanitize=address -g
 INPUT="../main.c ../code/axle/src/*.c"
 INCLUDE="../code/axle/include"
 OUTPUT="./bin/axle"

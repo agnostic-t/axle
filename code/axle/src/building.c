@@ -173,17 +173,11 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
 
         uax_ip_strextend(&cmd, receipt->compiler);
 
-        if (_cmb_pkgs_cflags){
-            uax_ip_strextend(&cmd, _cmb_pkgs_cflags);
-        }
+        if (_cmb_pkgs_cflags) uax_ip_strextend(&cmd, _cmb_pkgs_cflags);
+        if (_cmb_defines)     uax_ip_strextend(&cmd, _cmb_defines);
 
-        if (_cmb_defines){
-            uax_ip_strextend(&cmd, _cmb_defines);
-        }
-
-        if (receipt->output.type == DYN_LIBRARY){
+        if (receipt->output.type == DYN_LIBRARY)
             uax_ip_strextend(&cmd, " -fPIC");
-        }
 
         if (receipt->target.flags){
             uax_ip_strextend(&cmd, " ");
@@ -270,7 +264,7 @@ static _axle_link_metadata axle_link_metadata(const axle_receipt *receipt, const
     uax_free_strlist(&out_sources, &src_sz);
     free(obj_path);
 
-    printf("[axle][linking] .o paths: %s\n", _cmb_sources);
+    // printf("[axle][linking] .o paths: %s\n", _cmb_sources);
 
     char **out_libs = NULL;
     size_t libs_sz = 0;

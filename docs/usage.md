@@ -6,7 +6,7 @@ All configuration consists of blocks, some of them are optional. Here goes descr
   - Block provides *module name* and *version* of the package:
     - `name`: name of the module
     - `version`: version of the module in X.Y.Z format
-    - `priority`: number to specify build priority, modules with lower number are built firstly. **1000** by default
+    - `priority`: number to specify build priority, modules with lower number are built later. **1000** by default
     
   - Used when importing modules and checking version compatability
 
