@@ -1,1 +1,9 @@
 #!/bin/bash
+
+if [ ! -e "./bin/axle" ]; then
+    echo "AXLE is not built yet, consider running ./scripts/build first"
+    exit
+fi
+
+sudo cp ./bin/axle /usr/local/bin/axle
+echo "done"
