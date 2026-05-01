@@ -197,6 +197,13 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
         uax_ip_strextend(&cmd, " -o ");
         uax_ip_strextend(&cmd, o_path);
 
+        char *dir_output = uax_path_get_dir(o_path);
+        struct stat st;
+        if (stat(dir_output, &st) != 0){
+            mkdir(dir_output, 0755);
+        }
+        free(dir_output);
+
         free(cropped);
         free(changed);
         free(o_path);
