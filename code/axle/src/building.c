@@ -12,7 +12,7 @@
 
 #define AXLE_VERSION "v0.0.1"
 
-static int axle_compile_sources(const axle_receipt *receipt, const char *base_path);
+static int axle_compile_sources(const axle_receipt *receipt, const char *base_path, bool rebuild);
 
 static int axle_link_executable(const axle_receipt *receipt, const char *base_path);
 static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path);
@@ -28,7 +28,7 @@ static int _needs_rebuild(const char *source_file, const char *obj_file) {
     return 0;
 }
 
-int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting){
+int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting, bool rebuild){
 
     if (!hide_greeting)
         printf("[axle] version " AXLE_VERSION "\n");
@@ -64,7 +64,7 @@ int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_gre
     }
     free(out_path);
 
-    ret = axle_compile_sources(receipt, base_path);
+    ret = axle_compile_sources(receipt, base_path, rebuild);
     if (ret < 0){
         fprintf(stderr, "%s[axle] failed to build project%s at source compilation stage, code: %d\n", xfore.red, xfore.normal, ret);
         return -1;
@@ -108,7 +108,7 @@ static const char *axle_decr_optimization(axb_optilevel level){
     return "O0";
 }
 
-static int axle_compile_sources(const axle_receipt *receipt, const char *base_path){
+static int axle_compile_sources(const axle_receipt *receipt, const char *base_path, bool rebuild){
     const axle_sources *sources = &receipt->sources;
     if (!sources->sources && !receipt->only_deps){
         fprintf(stderr, "%s[axle][compilation] no sources given%s\n", xfore.red, xfore.normal);
@@ -162,7 +162,7 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
             free(changed);
             free(o_path);
             goto fail;
-        } else if (nr_ret == 0){
+        } else if (nr_ret == 0 && !rebuild){
             printf("[axle][compilation] %sskipping %s%s, already up to date\n", xfore.magenta, _this_source, xfore.normal);
 
             free(cropped);

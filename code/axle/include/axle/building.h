@@ -6,6 +6,6 @@
 
 #define strlist const char*[]
 
-int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting);
+int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting, bool rebuild);
 
 #endif

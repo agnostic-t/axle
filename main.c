@@ -9,7 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-int build(const char *path){
+int build(const char *path, bool rebuild){
     printf("%s[AXLE] build system v0.0.1%s\n", xfore.magenta, xfore.normal);
 
     char *target_file = NULL;
@@ -60,7 +60,7 @@ int build(const char *path){
         char *mod_base_path = uax_path_concat(mods_base, mod_receipts[i].metadata.name);
 
         printf("%s[axle]%s[%s%zu%s/%zu] building deps: %s%s%s\n", xfore.cyan, xfore.normal, xfore.green, i + 1, xfore.normal, mods_n, xfore.magenta, mod_receipts[i].metadata.name, xfore.normal);
-        if (0 > axle_build(&mod_receipts[i], mod_base_path, true)){
+        if (0 > axle_build(&mod_receipts[i], mod_base_path, true, rebuild)){
             fprintf(stderr, "%s[axle][%zu/%zu]%s build failed\n", xfore.red, i + 1, mods_n, xfore.normal);
 
             success = 0;
@@ -89,7 +89,7 @@ int build(const char *path){
     }
 
     int ret = 0;
-    if (0 > axle_build(&recp, directory, true)){
+    if (0 > axle_build(&recp, directory, true, rebuild)){
         fprintf(stderr, "%s[axle] failed%s to build main module\n", xfore.red, xfore.normal);
         ret = -1;
     } else {
@@ -137,7 +137,8 @@ int main(int argc, const char *argv[]) {
             stderr,
             "axle - build system\n"
             "version: 0.0.1\n"
-            "\tusage: %s build|module|help PATH|NAME\n\n"
+            "\tusage: %s build|module|help PATH|NAME [--clean]\n\n"
+            "--clean - works with build, rebuilds all files\n\n"
             "build:PATH - path to directory with project (module.json file)\n"
             "module:NAME - name of the module. Will be place in ./.modules/<name>\n"
             "help - print this help message and exit\n",
@@ -149,12 +150,16 @@ int main(int argc, const char *argv[]) {
 
     if (strcmp("build", argv[1]) == 0) {
 
-        if (argc != 3) {
+        if (argc < 3) {
             fprintf(stderr, "[axle] invalid usage, no path provided\n");
             return -1;
         }
 
-        build(argv[2]);
+        if (argc >= 4 && strcmp(argv[3], "--clean") == 0){
+            build(argv[2], true);
+        } else {
+            build(argv[2], false);
+        }
 
     } else if (strcmp("module", argv[1]) == 0) {
         if (argc != 3){
