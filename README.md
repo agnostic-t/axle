@@ -15,6 +15,10 @@ To build project that uses `axle`, just:
 
 ```sh
 axle build /path/to/module/with/module_json
+
+# You can test axle right in repo:
+axle build ./test/code
+./test/code/bin/main
 ```
 
 How to write `module.json` and make right structure for modules is written in `docs/usage.md`
