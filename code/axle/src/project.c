@@ -1,5 +1,6 @@
 #include "axle/project.h"
 
+#include "axle/colors.h"
 #include "axle/jsonload.h"
 #include "axle/path_utils.h"
 #include "axle/settings.h"
@@ -88,6 +89,46 @@ int axle_project_prepare(const char *directory, const char *adt_defaults, axle_r
 }
 
 typedef struct {
+    char **libs;
+    char **lib_dirs;
+    char **pkgs;
+} orig_ext_libs_t;
+
+static orig_ext_libs_t extract_orig_ext_libs(axle_receipt *recp) {
+    orig_ext_libs_t orig;
+    orig.libs = (char **)recp->sources.libs;
+    orig.lib_dirs = (char **)recp->sources.lib_dirs;
+    orig.pkgs = (char **)recp->sources.pkgs;
+
+    recp->sources.libs = NULL;
+    recp->sources.lib_dirs = NULL;
+    recp->sources.pkgs = NULL;
+
+    return orig;
+}
+
+static void restore_orig_ext_libs(axle_receipt *recp, orig_ext_libs_t orig) {
+    if (orig.lib_dirs) {
+        for (size_t k = 0; orig.lib_dirs[k] != NULL; k++) {
+            uax_strlist_extend_ne((char***)&recp->sources.lib_dirs, orig.lib_dirs[k]);
+        }
+        uax_free_strlist_ne(&orig.lib_dirs);
+    }
+    if (orig.libs) {
+        for (size_t k = 0; orig.libs[k] != NULL; k++) {
+            uax_strlist_extend_ne((char***)&recp->sources.libs, orig.libs[k]);
+        }
+        uax_free_strlist_ne(&orig.libs);
+    }
+    if (orig.pkgs) {
+        for (size_t k = 0; orig.pkgs[k] != NULL; k++) {
+            uax_strlist_extend_ne((char***)&recp->sources.pkgs, orig.pkgs[k]);
+        }
+        uax_free_strlist_ne(&orig.pkgs);
+    }
+}
+
+typedef struct {
     char *name;
     axle_receipt recp;
     int original_idx;
@@ -144,7 +185,7 @@ int axle_modules_prepare(const char *main_defaults, axle_receipt *main_receipt, 
         free(module_path_base);
 
         if (0 > axle_project_prepare(module_path, main_defaults, &recp)){
-            fprintf(stderr, "[axle][mod] failed to prepare receipt for module %s\n", mod_name);
+            fprintf(stderr, "%s[axle][mod] failed to prepare receipt%s for module %s\n", xfore.red, xfore.normal, mod_name);
             free(module_path);
             goto fail;
         }
@@ -156,7 +197,7 @@ int axle_modules_prepare(const char *main_defaults, axle_receipt *main_receipt, 
 
         axle_transitive_mod *tmp = realloc(loaded_mods, sizeof(axle_transitive_mod) * (loaded_n + 1));
         if (!tmp) {
-            fprintf(stderr, "[axle][mod] failed to allocate memory\n");
+            fprintf(stderr, "%s[axle][mod] failed to allocate memory%s\n", xfore.red, xfore.normal);
             goto fail;
         }
         loaded_mods = tmp;
@@ -170,11 +211,17 @@ int axle_modules_prepare(const char *main_defaults, axle_receipt *main_receipt, 
         qsort(loaded_mods, loaded_n, sizeof(axle_transitive_mod), cmp_transitive_mods);
     }
 
+    orig_ext_libs_t main_orig = extract_orig_ext_libs(main_receipt);
+
     for (size_t j = loaded_n; j > 0; j--) {
         axle_receipt_merge(main_receipt, &loaded_mods[j - 1].recp, loaded_mods[j - 1].name, ".modules");
     }
 
+    restore_orig_ext_libs(main_receipt, main_orig);
+
     for (size_t i = 0; i < loaded_n; i++) {
+        orig_ext_libs_t mod_orig = extract_orig_ext_libs(&loaded_mods[i].recp);
+
         char **trans_deps = NULL;
         size_t trans_n = 0;
 
@@ -187,22 +234,22 @@ int axle_modules_prepare(const char *main_defaults, axle_receipt *main_receipt, 
             const char *curr_dep = trans_deps[head2++];
 
             for (size_t j = 0; j < loaded_n; j++) {
-                if (strcmp(loaded_mods[j].name, curr_dep) == 0) {
-                    for (size_t d = 0; d < loaded_mods[j].recp.deps_n; d++) {
-                        const char *next_dep = loaded_mods[j].recp.dependencies[d].name;
-                        int found = 0;
-                        for (size_t k = 0; k < trans_n; k++) {
-                            if (strcmp(trans_deps[k], next_dep) == 0) {
-                                found = 1;
-                                break;
-                            }
-                        }
-                        if (!found) {
-                            uax_strlist_extend(&trans_deps, &trans_n, next_dep);
-                        }
+                if (strcmp(loaded_mods[j].name, curr_dep) != 0) continue;
+
+                for (size_t d = 0; d < loaded_mods[j].recp.deps_n; d++) {
+                    const char *next_dep = loaded_mods[j].recp.dependencies[d].name;
+                    int found = 0;
+                    for (size_t k = 0; k < trans_n; k++) {
+                        if (strcmp(trans_deps[k], next_dep) != 0) continue;
+
+                        found = 1;
+                        break;
                     }
-                    break;
+                    if (found) continue;
+
+                    uax_strlist_extend(&trans_deps, &trans_n, next_dep);
                 }
+                break;
             }
         }
 
@@ -210,10 +257,10 @@ int axle_modules_prepare(const char *main_defaults, axle_receipt *main_receipt, 
             const char *dep_candidate = loaded_mods[j - 1].name;
             int is_dep = 0;
             for (size_t k = 0; k < trans_n; k++) {
-                if (strcmp(trans_deps[k], dep_candidate) == 0) {
-                    is_dep = 1;
-                    break;
-                }
+                if (strcmp(trans_deps[k], dep_candidate) != 0) continue;
+
+                is_dep = 1;
+                break;
             }
 
             if (is_dep) {
@@ -222,6 +269,7 @@ int axle_modules_prepare(const char *main_defaults, axle_receipt *main_receipt, 
         }
 
         uax_free_strlist(&trans_deps, &trans_n);
+        restore_orig_ext_libs(&loaded_mods[i].recp, mod_orig);
     }
 
     if (loaded_n > 0) {

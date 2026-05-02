@@ -208,7 +208,7 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
         free(changed);
         free(o_path);
 
-        printf("[axle][compilation] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
+        printf("[axle][compilation] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
         int ret = system(cmd);
         free(cmd);
 
@@ -338,7 +338,7 @@ static int axle_link_executable(const axle_receipt *receipt, const char *base_pa
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
+    printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
@@ -383,7 +383,7 @@ static int axle_link_static_lib(const axle_receipt *receipt, const char *base_pa
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
+    printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
@@ -446,7 +446,7 @@ static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_p
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s%s%s\n", xfore.black, cmd, xfore.normal);
+    printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
