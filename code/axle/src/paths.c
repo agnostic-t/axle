@@ -248,9 +248,13 @@ int uax_expand_files(const char *base_dir, const char **path_list, char ***out_p
                 globfree(&glob_result);
             }
         } else {
-            char *path = uax_path_concat(base_dir, token);
-            _cfg_append_str(out_paths, out_n, path);
-            free(path);
+            if (token[0] == '/' || (token[0] && token[1] == ':')) {
+                _cfg_append_str(out_paths, out_n, token);
+            } else {
+                char *path = uax_path_concat(base_dir, token);
+                _cfg_append_str(out_paths, out_n, path);
+                free(path);
+            }
         }
     }
 

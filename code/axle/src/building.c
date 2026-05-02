@@ -108,6 +108,16 @@ static const char *axle_decr_optimization(axb_optilevel level){
     return "O0";
 }
 
+void uax_trim_leading_dot_uscore(char *str) {
+    if (!str || !*str) return;
+
+    char *src = str + strspn(str, "._");
+
+    if (src != str) {
+        memmove(str, src, strlen(src) + 1);
+    }
+}
+
 static int axle_compile_sources(const axle_receipt *receipt, const char *base_path, bool rebuild){
     const axle_sources *sources = &receipt->sources;
     if (!sources->sources && !receipt->only_deps){
@@ -153,6 +163,8 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
 
         char *changed = uax_path_change_ext(_this_source, "o");
         char *cropped = uax_strrepl(changed, '/', '_');
+
+        uax_trim_leading_dot_uscore(cropped);
         char *o_path  = uax_path_concat(obj_path, cropped);
 
         int nr_ret = _needs_rebuild(_this_source, o_path);
@@ -258,7 +270,10 @@ static _axle_link_metadata axle_link_metadata(const axle_receipt *receipt, const
 
         char *changed = uax_path_change_ext(_this_source, "o");
         char *cropped = uax_strrepl(changed, '/', '_');
+
+        uax_trim_leading_dot_uscore(cropped);
         char *o_path  = uax_path_concat(obj_path, cropped);
+
         free(changed);
         free(cropped);
 
