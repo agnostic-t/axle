@@ -29,6 +29,14 @@ Tested on *x86_64 Linux (6.18.25_1)*
 
 *Before installation you need to install [yyjson](https://github.com/ibireme/yyjson)*
 
+You can just run setup script:
+
+```sh
+./setup/full_setup.sh
+```
+
+Actual building:
+
 ```sh
 # install gcc beforehand
 
