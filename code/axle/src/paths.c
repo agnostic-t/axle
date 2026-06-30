@@ -231,7 +231,9 @@ int uax_expand_files(const char *base_dir, const char **path_list, char ***out_p
                     char *full_path = glob_result.gl_pathv[j];
                     char *relative_path = NULL;
 
-                    if (base_dir && strncmp(full_path, base_dir, strlen(base_dir)) == 0) {
+                    if (base_dir &&
+                        strcmp(base_dir, ".") != 0 &&
+                        strncmp(full_path, base_dir, strlen(base_dir)) == 0) {
                         char *start = full_path + strlen(base_dir);
                         if (*start == '/') start++;
                         relative_path = strdup(start);

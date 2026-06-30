@@ -12,11 +12,11 @@
 
 #define AXLE_VERSION "v0.0.1"
 
-static int axle_compile_sources(const axle_receipt *receipt, const char *base_path, bool rebuild);
+static int axle_compile_sources(const axle_receipt *receipt, const char *base_path, bool rebuild, bool silent);
 
-static int axle_link_executable(const axle_receipt *receipt, const char *base_path);
-static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path);
-static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_path);
+static int axle_link_executable(const axle_receipt *receipt, const char *base_path, bool silent);
+static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path, bool silent);
+static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_path, bool silent);
 
 static int _needs_rebuild(const char *source_file, const char *obj_file) {
     struct stat src_stat, obj_stat;
@@ -28,15 +28,17 @@ static int _needs_rebuild(const char *source_file, const char *obj_file) {
     return 0;
 }
 
-int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting, bool rebuild){
+int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_greeting, bool rebuild, bool silent){
 
-    if (!hide_greeting)
+    if (!hide_greeting && !silent)
         printf("[axle] version " AXLE_VERSION "\n");
 
-    printf(
-        "[axle] building %s project, version: %s\n",
-        receipt->metadata.name, receipt->metadata.version
-    );
+    if (!silent){
+        printf(
+            "[axle] building %s project, version: %s\n",
+            receipt->metadata.name, receipt->metadata.version
+        );
+    }
 
     int ret = 0;
 
@@ -64,25 +66,28 @@ int axle_build(const axle_receipt *receipt, const char *base_path, bool hide_gre
     }
     free(out_path);
 
-    ret = axle_compile_sources(receipt, base_path, rebuild);
+    ret = axle_compile_sources(receipt, base_path, rebuild, silent);
     if (ret < 0){
         fprintf(stderr, "%s[axle] failed to build project%s at source compilation stage, code: %d\n", xfore.red, xfore.normal, ret);
         return -1;
     }
 
+    if (receipt->only_deps) {
+        return 0;
+    }
 
     switch (receipt->output.type){
         case EXECUTABLE:
-            printf("[axle] linking %sexecutable%s\n", xfore.yellow, xfore.normal);
-            ret = axle_link_executable(receipt, base_path);
+            if (!silent) printf("[axle] linking %sexecutable%s\n", xfore.yellow, xfore.normal);
+            ret = axle_link_executable(receipt, base_path, silent);
             break;
         case DYN_LIBRARY:
-            printf("[axle] linking %sdynamic library%s\n", xfore.yellow, xfore.normal);
-            ret = axle_link_dynamic_lib(receipt, base_path);
+            if (!silent) printf("[axle] linking %sdynamic library%s\n", xfore.yellow, xfore.normal);
+            ret = axle_link_dynamic_lib(receipt, base_path, silent);
             break;
         case STATIC_LIBRARY:
-            printf("[axle] linking %sstatic library%s\n", xfore.yellow, xfore.normal);
-            ret = axle_link_static_lib(receipt, base_path);
+            if (!silent) printf("[axle] linking %sstatic library%s\n", xfore.yellow, xfore.normal);
+            ret = axle_link_static_lib(receipt, base_path, silent);
             break;
 
         default: break;
@@ -118,7 +123,7 @@ void uax_trim_leading_dot_uscore(char *str) {
     }
 }
 
-static int axle_compile_sources(const axle_receipt *receipt, const char *base_path, bool rebuild){
+static int axle_compile_sources(const axle_receipt *receipt, const char *base_path, bool rebuild, bool silent){
     const axle_sources *sources = &receipt->sources;
     if (!sources->sources && !receipt->only_deps){
         fprintf(stderr, "%s[axle][compilation] no sources given%s\n", xfore.red, xfore.normal);
@@ -175,7 +180,7 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
             free(o_path);
             goto fail;
         } else if (nr_ret == 0 && !rebuild){
-            printf("[axle][compilation] %sskipping %s%s, already up to date\n", xfore.magenta, _this_source, xfore.normal);
+            if (!silent) printf("[axle][compilation] %sskipping %s%s, already up to date\n", xfore.magenta, _this_source, xfore.normal);
 
             free(cropped);
             free(changed);
@@ -220,7 +225,7 @@ static int axle_compile_sources(const axle_receipt *receipt, const char *base_pa
         free(changed);
         free(o_path);
 
-        printf("[axle][compilation] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
+        if (!silent) printf("[axle][compilation] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
         int ret = system(cmd);
         free(cmd);
 
@@ -319,7 +324,7 @@ static _axle_link_metadata axle_link_metadata(const axle_receipt *receipt, const
     };
 }
 
-static int axle_link_executable(const axle_receipt *receipt, const char *base_path){
+static int axle_link_executable(const axle_receipt *receipt, const char *base_path, bool silent){
     _axle_link_metadata md = axle_link_metadata(receipt, base_path);
 
     char *cmd = NULL;
@@ -353,7 +358,7 @@ static int axle_link_executable(const axle_receipt *receipt, const char *base_pa
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
+    if (!silent) printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
@@ -365,7 +370,7 @@ static int axle_link_executable(const axle_receipt *receipt, const char *base_pa
     return 0;
 }
 
-static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path){
+static int axle_link_static_lib(const axle_receipt *receipt, const char *base_path, bool silent){
     _axle_link_metadata md = axle_link_metadata(receipt, base_path);
 
     char *_dirname = uax_path_get_dir(receipt->output.path);
@@ -398,7 +403,7 @@ static int axle_link_static_lib(const axle_receipt *receipt, const char *base_pa
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
+    if (!silent) printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
@@ -410,7 +415,7 @@ static int axle_link_static_lib(const axle_receipt *receipt, const char *base_pa
     return 0;
 }
 
-static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_path){
+static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_path, bool silent){
     _axle_link_metadata md = axle_link_metadata(receipt, base_path);
 
     char *cmd = NULL;
@@ -461,7 +466,7 @@ static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_p
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
 
-    printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
+    if (!silent) printf("[axle][link] command: %s%s%s\n", xfore.gray, cmd, xfore.normal);
     int ret = system(cmd);
     free(cmd);
 
