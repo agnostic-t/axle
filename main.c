@@ -81,7 +81,7 @@ int build(const char *path, bool rebuild, bool silent, bool force_update) {
     }
 
     if (0 > axle_dep_build(directory, rd->repo_name, main_defaults,
-                            force_update, silent, 0)) {
+                            false, silent, 0)) {
         fprintf(stderr, "%s[axle] failed to build remote_dep '%s'%s\n",
                 xfore.red, rd->repo_name, xfore.normal);
         if (main_defaults) free(main_defaults);
