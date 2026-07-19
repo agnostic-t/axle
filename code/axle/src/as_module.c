@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <yyjson.h>
+#include "axle/yyjson.h"
 
 static void axle_export_entry_init(axle_export_entry *e) {
   if (!e)

@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 
 int build(const char *path, bool rebuild, bool silent) {
-  printf("%s[AXLE] build system v0.0.1%s\n", xfore.magenta, xfore.normal);
+  printf("%s[AXLE] build system v0.0.2%s\n", xfore.magenta, xfore.normal);
 
   char *target_file = NULL;
   struct stat s;
