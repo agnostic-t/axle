@@ -30,7 +30,7 @@ int axle_git_pull(const char *repo_path) {
     if (!cmd) return -1;
     /* --ff-only: refuse to create surprise merge commits. If a non-ff update
      * is required, the user will have to do it manually. */
-    snprintf(cmd, needed, "git reset --hard && git -C %s pull -q --ff-only", repo_path);
+    snprintf(cmd, needed, "git -C %s reset --hard && git -C %s pull -q --ff-only", repo_path, repo_path);
 
     int ret = system(cmd);
     free(cmd);
