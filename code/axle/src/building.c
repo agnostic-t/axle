@@ -392,7 +392,8 @@ static int axle_link_static_lib(const axle_receipt *receipt, const char *base_pa
     free(_dirname);
 
     char *cmd = NULL;
-    uax_ip_strextend(&cmd, "ar rcs ");
+    uax_ip_strextend(&cmd, receipt->linker);
+    uax_ip_strextend(&cmd, " rcs ");
     uax_ip_strextend(&cmd, output_path);
     uax_ip_strextend(&cmd, ".a ");
     uax_ip_strextend(&cmd, md._cmb_sources);

@@ -1,4 +1,5 @@
 #include "axle/jsonload.h"
+#include "axle/colors.h"
 #include "axle/dependencies.h"
 #include "axle/path_utils.h"
 #include "axle/settings.h"
@@ -70,7 +71,7 @@ static const char **parse_defines(yyjson_val *arr) {
     return list;
 }
 
-int axle_load_settings(axle_receipt *recp, const char *defaults_path, const char *target_name) {
+int axle_load_settings(axle_receipt *recp, const char *defaults_path, const char *target_name, const char *project_root) {
     if (!defaults_path) return -1;
 
     char *dir_path = uax_path_get_dir(defaults_path);
@@ -88,7 +89,14 @@ int axle_load_settings(axle_receipt *recp, const char *defaults_path, const char
     yyjson_val *comp = yyjson_obj_get(root, "compiler");
     if (comp) {
         const char *cc = yyjson_get_str(yyjson_obj_get(comp, "cc"));
-        if (cc) recp->compiler = strdup(cc);
+        if (cc) {
+            recp->compiler = strdup(cc);
+        }
+
+        const char *linker = yyjson_get_str(yyjson_obj_get(comp, "linker"));
+        if (linker) {
+            recp->linker = strdup(linker);
+        }
 
         const char *obj_path = yyjson_get_str(yyjson_obj_get(comp, "objects_path"));
         if (obj_path) recp->output.obj_path = strdup(obj_path);
@@ -144,66 +152,100 @@ int axle_load_settings(axle_receipt *recp, const char *defaults_path, const char
         if (output) recp->output.path = strdup(output);
     }
 
+    /* ----- local dependencies (`.modules/`) -----
+     * The presence of a `url` field here is treated as a misuse — the user
+     * probably meant `remote_deps`. We warn and ignore it. */
     yyjson_val *deps = yyjson_obj_get(root, "dependencies");
-    if (deps){
-        size_t idx = 0;
-        yyjson_val *key, *val;
+    if (deps && yyjson_is_obj(deps)) {
         yyjson_obj_iter iter;
         yyjson_obj_iter_init(deps, &iter);
+        yyjson_val *key;
 
         while ((key = yyjson_obj_iter_next(&iter))) {
-            val = yyjson_obj_iter_get_val(key);
+            yyjson_val *val = yyjson_obj_iter_get_val(key);
             const char *strkey = yyjson_get_str(key);
             const char *version = yyjson_get_str(yyjson_obj_get(val, "version"));
             const char *url = yyjson_get_str(yyjson_obj_get(val, "url"));
 
-            printf("[axle][deps] module: %s\n", strkey);
-
             if (url) {
-                if (0 > axle_dep_download(url, version, dir_path, strkey)){
-                    fprintf(stderr, "[axle][deps] failed to download dependency\n");
-                    free(dir_path);
-                    yyjson_doc_free(doc);
-
-                    if (recp->dependencies){
-                        for (size_t j = 0; j < recp->deps_n; j++)
-                            free((void*)recp->dependencies[j].name);
-                        free(recp->dependencies);
-                        recp->dependencies = NULL;
-                        recp->deps_n = 0;
-                    }
-
-                    return -1;
-                }
+                fprintf(stderr,
+                        "%s[axle][deps] warning: dependency '%s' has a `url` "
+                        "field in `dependencies`. `dependencies` is for local "
+                        "modules only; use `remote_deps` for git-cloned "
+                        "dependencies. Ignoring `url`.%s\n",
+                        xfore.yellow, strkey, xfore.normal);
             }
-            axle_dependency dep = {.name = strdup(strkey)};
-            if ( 0 > axle_dep_parsever(&dep, version)){
-                fprintf(stderr, "[axle][deps] failed to parse version for dependency\n");
+
+            axle_dependency dep = {0};
+            dep.name = strdup(strkey);
+
+            if (version && 0 > axle_dep_parsever(&dep, version)){
+                fprintf(stderr, "[axle][deps] failed to parse version for dependency %s\n", strkey);
+                free((void*)dep.name);
                 free(dir_path);
                 yyjson_doc_free(doc);
-
-                if (recp->dependencies){
-                    for (size_t j = 0; j < recp->deps_n; j++)
-                        free((void*)recp->dependencies[j].name);
-                    free(recp->dependencies);
-                    recp->dependencies = NULL;
-                    recp->deps_n = 0;
-                }
-
                 return -1;
             }
 
-            axle_dependency *deps = realloc(recp->dependencies, sizeof(axle_dependency) * (recp->deps_n + 1));
-            if (!deps){
+            axle_dependency *deps_arr = realloc(recp->dependencies,
+                                                sizeof(axle_dependency) * (recp->deps_n + 1));
+            if (!deps_arr){
                 fprintf(stderr, "[axle][deps] failed to realloc\n");
+                free((void*)dep.name);
                 free(dir_path);
                 yyjson_doc_free(doc);
                 return -1;
             }
 
-            deps[recp->deps_n] = dep;
+            deps_arr[recp->deps_n] = dep;
             recp->deps_n++;
-            recp->dependencies = deps;
+            recp->dependencies = deps_arr;
+        }
+    }
+
+    /* ----- remote dependencies (`.vendor/<repo>/`) ----- */
+    yyjson_val *rdeps = yyjson_obj_get(root, "remote_deps");
+    if (rdeps && yyjson_is_obj(rdeps)) {
+        yyjson_obj_iter iter;
+        yyjson_obj_iter_init(rdeps, &iter);
+        yyjson_val *key;
+
+        while ((key = yyjson_obj_iter_next(&iter))) {
+            yyjson_val *val = yyjson_obj_iter_get_val(key);
+            const char *repo_name = yyjson_get_str(key);
+            const char *url = yyjson_get_str(yyjson_obj_get(val, "url"));
+            const char *version = yyjson_get_str(yyjson_obj_get(val, "version"));
+
+            if (!url) {
+                fprintf(stderr,
+                        "%s[axle][remote_deps] error: entry '%s' is missing "
+                        "required `url` field.%s\n",
+                        xfore.red, repo_name, xfore.normal);
+                free(dir_path);
+                yyjson_doc_free(doc);
+                return -1;
+            }
+
+            axle_remote_dep rd = {0};
+            rd.repo_name  = strdup(repo_name);
+            rd.url        = strdup(url);
+            rd.version_req = version ? strdup(version) : strdup(">=0.0.0");
+
+            axle_remote_dep *arr = realloc(recp->remote_deps,
+                                           sizeof(axle_remote_dep) * (recp->remote_deps_n + 1));
+            if (!arr) {
+                fprintf(stderr, "[axle][remote_deps] failed to realloc\n");
+                free(rd.repo_name);
+                free(rd.url);
+                free(rd.version_req);
+                free(dir_path);
+                yyjson_doc_free(doc);
+                return -1;
+            }
+
+            arr[recp->remote_deps_n] = rd;
+            recp->remote_deps_n++;
+            recp->remote_deps = arr;
         }
     }
 

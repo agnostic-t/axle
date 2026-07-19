@@ -3,6 +3,7 @@
 
 #include "axle/settings.h"
 
-int axle_load_settings(axle_receipt *recp, const char *defaults_path, const char *target_name);
+int axle_load_settings(axle_receipt *recp, const char *defaults_path,
+                       const char *target_name, const char *project_root);
 
 #endif

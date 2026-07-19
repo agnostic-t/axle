@@ -139,7 +139,7 @@ static int axle_tests_set_output(axle_receipt *recp, const char *tests_path_rel,
 
 int axle_tests_run(const char *project_root, const char *test_name,
                    bool only_build) {
-  bool silent = true;
+  bool silent = false;
 
   if (!project_root) {
     fprintf(stderr, "%s[axle][tests] project_root is required%s\n", xfore.red,
@@ -175,7 +175,8 @@ int axle_tests_run(const char *project_root, const char *test_name,
   axle_receipt test_recp;
   memset(&test_recp, 0, sizeof(test_recp));
 
-  if (0 > axle_project_prepare(tests_mod_json, NULL, &test_recp)) {
+  if (0 >
+      axle_project_prepare(tests_mod_json, NULL, project_root, &test_recp)) {
     fprintf(stderr, "%s[axle][tests] failed to prepare test module receipt%s\n",
             xfore.red, xfore.normal);
     free(tests_mod_json);

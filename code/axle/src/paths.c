@@ -231,15 +231,18 @@ int uax_expand_files(const char *base_dir, const char **path_list, char ***out_p
                     char *full_path = glob_result.gl_pathv[j];
                     char *relative_path = NULL;
 
-                    if (base_dir &&
-                        strcmp(base_dir, ".") != 0 &&
-                        strncmp(full_path, base_dir, strlen(base_dir)) == 0) {
-                        char *start = full_path + strlen(base_dir);
-                        if (*start == '/') start++;
-                        relative_path = strdup(start);
-                    } else {
-                        relative_path = strdup(full_path);
-                    }
+                    /* When base_dir is "." we keep glob's path verbatim
+                     * (which is already relative to CWD). When base_dir is
+                     * non-trivial, we used to strip the base_dir prefix to
+                     * produce a path relative to base_dir — but that breaks
+                     * callers that subsequently pass the path to stat() / the
+                     * compiler without rebasing onto CWD first (e.g. when
+                     * building sub-modules of a remote_dep, where CWD is the
+                     * remote_dep's root but base_dir is a sub-directory of
+                     * it). The robust behaviour is to keep the full path as
+                     * glob returned it. */
+                    (void)base_dir;
+                    relative_path = strdup(full_path);
 
                     if (relative_path) {
                         // printf("[uax][exp_files] adding %s\n", relative_path);

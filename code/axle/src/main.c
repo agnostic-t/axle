@@ -1,6 +1,7 @@
 #include "axle/building.h"
 #include "axle/cleanup.h"
 #include "axle/colors.h"
+#include "axle/dependencies.h"
 #include "axle/path_utils.h"
 #include "axle/project.h"
 #include "axle/settings.h"
@@ -10,7 +11,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-int build(const char *path, bool rebuild, bool silent) {
+int build(const char *path, bool rebuild, bool silent, bool force_update) {
   printf("%s[AXLE] build system v0.0.1%s\n", xfore.magenta, xfore.normal);
 
   char *target_file = NULL;
@@ -23,32 +24,85 @@ int build(const char *path, bool rebuild, bool silent) {
 
   char *directory = uax_path_get_dir(target_file);
 
-  axle_receipt recp;
-  if (0 > axle_project_prepare(target_file, NULL, directory, &recp)) {
-    fprintf(stderr, "%s[axle]%s failed to prepare reciept\n", xfore.red,
-            xfore.normal);
-    free(target_file);
-    free(directory);
-    return -1;
-  }
-
-  free(target_file);
-
-  axle_receipt *mod_receipts = NULL;
-  size_t mods_n = 0;
-
+  /* Resolve the top-level project's defaults.json (if any) BEFORE preparing
+   * the main receipt, so we can pass it as `adt_defaults` to
+   * `axle_project_prepare`. It is then also reused:
+   *   - as `inherited_defaults` for every top-level remote_dep (so sub-deps
+   *     inherit our compiler / linker if they don't have their own);
+   *   - as `main_defaults` for `axle_modules_prepare` (so local sub-modules
+   *     in .modules/ inherit our defaults too). */
   struct stat st;
-
   char *main_defaults = uax_path_concat(directory, "defaults.json");
   if (stat(main_defaults, &st) != 0) {
     free(main_defaults);
     main_defaults = NULL;
   }
 
+  axle_receipt recp;
+  if (0 > axle_project_prepare(target_file, main_defaults, directory, &recp)) {
+    fprintf(stderr, "%s[axle]%s failed to prepare reciept\n", xfore.red,
+            xfore.normal);
+    free(target_file);
+    if (main_defaults) free(main_defaults);
+    free(directory);
+    return -1;
+  }
+
+  free(target_file);
+
+  /* ----- install + build all remote_deps BEFORE preparing modules -----
+   * This is required because the local `dependencies` section of module.json
+   * may reference modules that only become visible after a remote_dep is
+   * installed (via the symlinks created in .modules/<export_name>). */
+  for (size_t i = 0; i < recp.remote_deps_n; i++) {
+    const axle_remote_dep *rd = &recp.remote_deps[i];
+
+    printf("%s[axle][remote_deps]%s [%zu/%zu] %s (%s)\n",
+           xfore.cyan, xfore.normal, i + 1, recp.remote_deps_n,
+           rd->repo_name, rd->url);
+
+    if (0 > axle_dep_download(rd->url, rd->version_req,
+                              directory, rd->repo_name, force_update)) {
+      fprintf(stderr, "%s[axle] failed to download remote_dep '%s'%s\n",
+              xfore.red, rd->repo_name, xfore.normal);
+      if (main_defaults) free(main_defaults);
+      clean_axle_receipt(&recp);
+      free(directory);
+      return -1;
+    }
+
+    if (0 > axle_dep_install(directory, rd->repo_name, rd->version_req)) {
+      fprintf(stderr, "%s[axle] failed to install remote_dep '%s'%s\n",
+              xfore.red, rd->repo_name, xfore.normal);
+      if (main_defaults) free(main_defaults);
+      clean_axle_receipt(&recp);
+      free(directory);
+      return -1;
+    }
+
+    if (0 > axle_dep_build(directory, rd->repo_name, main_defaults,
+                           rebuild, silent, 0)) {
+      fprintf(stderr, "%s[axle] failed to build remote_dep '%s'%s\n",
+              xfore.red, rd->repo_name, xfore.normal);
+      if (main_defaults) free(main_defaults);
+      clean_axle_receipt(&recp);
+      free(directory);
+      return -1;
+    }
+  }
+
+  if (recp.remote_deps_n > 0) {
+    printf("%s[axle] remote_deps all built%s\n", xfore.green, xfore.normal);
+  }
+
+  axle_receipt *mod_receipts = NULL;
+  size_t mods_n = 0;
+
   if (0 > axle_modules_prepare(main_defaults, &recp, directory, &mod_receipts,
                                &mods_n)) {
     fprintf(stderr, "%s[axle]%s failed to prepare modules\n", xfore.red,
             xfore.normal);
+    if (main_defaults) free(main_defaults);
     clean_axle_receipt(&recp);
     free(directory);
     return -1;
@@ -65,9 +119,25 @@ int build(const char *path, bool rebuild, bool silent) {
     char *mod_base_path =
         uax_path_concat(mods_base, mod_receipts[i].metadata.name);
 
+    /* If this module entry is a symlink, it points into `.vendor/` — which
+     * means it's a remote_dep we already built via `axle_dep_build` above.
+     * Skip the redundant rebuild; the symlinks/artefacts are already in
+     * place and `axle_modules_prepare` has already merged its incl_dirs /
+     * lib_dirs / libs into the main receipt via `axle_receipt_merge`. */
+    struct stat mod_stat;
+    int is_symlink = (lstat(mod_base_path, &mod_stat) == 0 &&
+                      S_ISLNK(mod_stat.st_mode));
+
     printf("%s[axle]%s[%s%zu%s/%zu] building deps: %s%s%s\n", xfore.cyan,
            xfore.normal, xfore.green, i + 1, xfore.normal, mods_n,
            xfore.magenta, mod_receipts[i].metadata.name, xfore.normal);
+    if (is_symlink) {
+      printf("%s[axle]%s %sskipping%s (already built as remote_dep)\n",
+             xfore.cyan, xfore.normal, xfore.magenta, xfore.normal);
+      free(mod_base_path);
+      continue;
+    }
+
     if (0 >
         axle_build(&mod_receipts[i], mod_base_path, true, rebuild, silent)) {
       fprintf(stderr, "%s[axle][%zu/%zu]%s build failed\n", xfore.red, i + 1,
@@ -146,22 +216,28 @@ const char *template = "{\n"
                        "  \"target\": \"debug\"\n"
                        "}";
 
+static void print_help(const char *argv0) {
+  fprintf(
+      stderr,
+      "axle - build system\n"
+      "version: 0.0.1\n"
+      "\tusage: %s build|module|test|help PATH|NAME [flags...]\n\n"
+      "build flags:\n"
+      "  --clean   rebuilds all .o files (forces full recompilation)\n"
+      "  --update  forces `git pull` for every remote_dep before building\n"
+      "\n"
+      "build:PATH - path to directory with project (module.json file)\n"
+      "module:NAME - name of the module. Will be place in ./.modules/<name>\n"
+      "help - print this help message and exit\n\n"
+      "Tests:\naxle test [name of the test] [--only build]\n",
+      argv0);
+}
+
 int main(int argc, const char *argv[]) {
   const char *path = "./test/code/module.json";
 
   if (argc == 1 || strcmp(argv[1], "help") == 0) {
-    fprintf(
-        stderr,
-        "axle - build system\n"
-        "version: 0.0.1\n"
-        "\tusage: %s build|module|test|help PATH|NAME [--clean]\n\n"
-        "--clean - works with build, rebuilds all files\n\n"
-        "build:PATH - path to directory with project (module.json file)\n"
-        "module:NAME - name of the module. Will be place in ./.modules/<name>\n"
-        "help - print this help message and exit\n\nTests:\naxle test [name of "
-        "the test] [--only build]\n",
-        argv[0]);
-
+    print_help(argv[0]);
     return -1;
   }
 
@@ -172,11 +248,20 @@ int main(int argc, const char *argv[]) {
       return -1;
     }
 
-    if (argc >= 4 && strcmp(argv[3], "--clean") == 0) {
-      build(argv[2], true, false);
-    } else {
-      build(argv[2], false, false);
+    bool rebuild = false;
+    bool force_update = false;
+    for (int i = 3; i < argc; i++) {
+      if (strcmp(argv[i], "--clean") == 0) {
+        rebuild = true;
+      } else if (strcmp(argv[i], "--update") == 0) {
+        force_update = true;
+      } else {
+        fprintf(stderr, "%s[axle] unknown flag: %s%s\n",
+                xfore.red, argv[i], xfore.normal);
+        return -1;
+      }
     }
+    return build(argv[2], rebuild, false, force_update) == 0 ? 0 : 1;
 
   } else if (strcmp("module", argv[1]) == 0) {
     if (argc != 3) {
@@ -240,4 +325,6 @@ int main(int argc, const char *argv[]) {
             argv[0]);
     return -1;
   }
+
+  return 0;
 }
