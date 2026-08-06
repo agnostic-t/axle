@@ -15,41 +15,201 @@
 #include <unistd.h>
 #include <yyjson.h>
 
-static int axle_receipt_merge(axle_receipt *into, axle_receipt *from, const char *module_name, const char *base_dir){
-    char *base_path = uax_path_concat(base_dir, module_name);
+static int axle_path_is_absolute(const char *path) {
+    if (!path || !*path)
+        return 0;
 
-    char *incl_dir = uax_path_concat(base_path, "include");
-    uax_strlist_extend_ne((char***)&into->sources.incl_dirs, incl_dir);
-    free(incl_dir);
+    if (path[0] == '/')
+        return 1;
 
-    char *lib_dir = uax_path_concat(base_path, "bin");
-    struct stat st;
-    if (stat(lib_dir, &st) == 0){
-        uax_strlist_extend_ne((char***)&into->sources.lib_dirs, lib_dir);
+    if (path[0] && path[1] == ':')
+        return 1;
+
+    return 0;
+}
+
+static int axle_merge_paths(
+    const char *module_base,
+    const char **paths,
+    const char ***destination
+) {
+    if (!paths)
+        return 0;
+
+    for (size_t i = 0; paths[i] != NULL; i++) {
+        char *rebased = NULL;
+
+        if (axle_path_is_absolute(paths[i])) {
+            rebased = strdup(paths[i]);
+        } else {
+            rebased = uax_path_concat(
+                module_base,
+                paths[i]
+            );
+        }
+
+        if (!rebased)
+            return -1;
+
+        if (uax_strlist_extend_ne(
+                (char ***)destination,
+                rebased
+            ) < 0) {
+            free(rebased);
+            return -1;
+        }
+
+        free(rebased);
     }
-    free(lib_dir);
 
-    /* Only merge the dependency's output filename into our `libs` list if
-     * the dependency actually PRODUCES a library. Executables do not expose
-     * symbols for downstream linkers and trying to `-l` against them only
-     * produces "cannot find -lfoo" errors (the file is `bin/foo`, not
-     * `bin/libfoo.a`). */
+    return 0;
+}
+
+static int axle_merge_strings(
+    const char **values,
+    const char ***destination
+) {
+    if (!values)
+        return 0;
+
+    for (size_t i = 0; values[i] != NULL; i++) {
+        if (uax_strlist_extend_ne(
+                (char ***)destination,
+                values[i]
+            ) < 0) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static int axle_receipt_merge(
+    axle_receipt *into,
+    axle_receipt *from,
+    const char *module_name,
+    const char *base_dir
+) {
+    if (!into || !from || !module_name || !base_dir)
+        return -1;
+
+    char *base_path =
+        uax_path_concat(base_dir, module_name);
+
+    if (!base_path)
+        return -1;
+
+    /*
+     * Public include interface.
+     */
+    if (from->sources.incl_dirs) {
+        if (axle_merge_paths(
+                base_path,
+                from->sources.incl_dirs,
+                &into->sources.incl_dirs
+            ) < 0) {
+            free(base_path);
+            return -1;
+        }
+    } else {
+        char *include_path =
+            uax_path_concat(base_path, "include");
+
+        if (!include_path) {
+            free(base_path);
+            return -1;
+        }
+
+        if (uax_strlist_extend_ne(
+                (char ***)&into->sources.incl_dirs,
+                include_path
+            ) < 0) {
+            free(include_path);
+            free(base_path);
+            return -1;
+        }
+
+        free(include_path);
+    }
+
+    if (axle_merge_paths(
+            base_path,
+            from->sources.lib_dirs,
+            &into->sources.lib_dirs
+        ) < 0) {
+        free(base_path);
+        return -1;
+    }
+
     if (from->output.path &&
         (from->output.type == STATIC_LIBRARY ||
          from->output.type == DYN_LIBRARY)) {
-        const char *filename = from->output.path;
-        const char *last_slash = strrchr(filename, '/');
-        if (last_slash) {
-            filename = last_slash + 1;
-            if (*filename == '\0') filename = NULL;
+
+        char *output_dir =
+            uax_path_get_dir(from->output.path);
+
+        if (!output_dir) {
+            free(base_path);
+            return -1;
         }
 
-        char *lib_dir_again = uax_path_concat(base_path, "bin");
-        uax_strlist_extend_ne((char***)&into->sources.lib_dirs, lib_dir_again);
-        free(lib_dir_again);
+        char *rebased_output_dir =
+            uax_path_concat(base_path, output_dir);
 
-        if (filename)
-            uax_strlist_extend_ne((char***)&into->sources.libs, filename);
+        free(output_dir);
+
+        if (!rebased_output_dir) {
+            free(base_path);
+            return -1;
+        }
+
+        if (uax_strlist_extend_ne(
+                (char ***)&into->sources.lib_dirs,
+                rebased_output_dir
+            ) < 0) {
+            free(rebased_output_dir);
+            free(base_path);
+            return -1;
+        }
+
+        free(rebased_output_dir);
+
+        const char *filename =
+            uax_path_filename(from->output.path);
+
+        if (filename) {
+            const char *link_name = filename;
+
+            if (strncmp(link_name, "lib", 3) == 0)
+                link_name += 3;
+
+            if (uax_strlist_extend_ne(
+                    (char ***)&into->sources.libs,
+                    link_name
+                ) < 0) {
+                free(base_path);
+                return -1;
+            }
+        }
+    }
+
+    if (axle_merge_strings(
+            from->sources.libs,
+            &into->sources.libs
+        ) < 0) {
+        free(base_path);
+        return -1;
+    }
+
+    /*
+     * Public pkg-config deps.
+     */
+    if (axle_merge_strings(
+            from->sources.pkgs,
+            &into->sources.pkgs
+        ) < 0) {
+        free(base_path);
+        return -1;
     }
 
     free(base_path);

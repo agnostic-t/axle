@@ -354,6 +354,14 @@ static int axle_link_executable(const axle_receipt *receipt, const char *base_pa
     }
 
     free(md._cmb_sources);
+    if (md._cmb_pkgs_libs) {
+        uax_ip_strextend(
+            &cmd,
+            md._cmb_pkgs_libs
+        );
+        uax_ip_strextend(&cmd, " ");
+    }
+
     if (md._cmb_pkgs_libs) free(md._cmb_pkgs_libs);
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
@@ -400,6 +408,14 @@ static int axle_link_static_lib(const axle_receipt *receipt, const char *base_pa
     free(output_path);
 
     free(md._cmb_sources);
+    if (md._cmb_pkgs_libs) {
+        uax_ip_strextend(
+            &cmd,
+            md._cmb_pkgs_libs
+        );
+        uax_ip_strextend(&cmd, " ");
+    }
+
     if (md._cmb_pkgs_libs) free(md._cmb_pkgs_libs);
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
@@ -463,6 +479,14 @@ static int axle_link_dynamic_lib(const axle_receipt *receipt, const char *base_p
     }
 
     free(md._cmb_sources);
+    if (md._cmb_pkgs_libs) {
+        uax_ip_strextend(
+            &cmd,
+            md._cmb_pkgs_libs
+        );
+        uax_ip_strextend(&cmd, " ");
+    }
+
     if (md._cmb_pkgs_libs) free(md._cmb_pkgs_libs);
     if (md._cmb_libdirs)   free(md._cmb_libdirs);
     if (md._cmb_libs)      free(md._cmb_libs);
