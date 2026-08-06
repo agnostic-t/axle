@@ -36,6 +36,50 @@ static const char **json_arr_to_strlist(yyjson_val *arr) {
     return list;
 }
 
+static int parse_hook_commands(yyjson_val *value,
+                               const char *field_name,
+                               const char ***destination) {
+    if (!value)
+        return 0;
+
+    if (!yyjson_is_arr(value)) {
+        fprintf(stderr,
+                "[axle][hooks] '%s' must be an array of command strings\n",
+                field_name);
+        return -1;
+    }
+
+    size_t count = yyjson_arr_size(value);
+    const char **commands = calloc(count + 1, sizeof(char *));
+    if (!commands)
+        return -1;
+
+    size_t index = 0;
+    yyjson_arr_iter iter;
+    yyjson_arr_iter_init(value, &iter);
+    yyjson_val *item;
+
+    while ((item = yyjson_arr_iter_next(&iter))) {
+        if (!yyjson_is_str(item)) {
+            fprintf(stderr,
+                    "[axle][hooks] every '%s' entry must be a string\n",
+                    field_name);
+            uax_free_strlist_ne((char ***)&commands);
+            return -1;
+        }
+        commands[index++] = strdup(yyjson_get_str(item));
+        if (!commands[index - 1]) {
+            uax_free_strlist_ne((char ***)&commands);
+            return -1;
+        }
+    }
+
+    if (*destination)
+        uax_free_strlist_ne((char ***)destination);
+    *destination = commands;
+    return 0;
+}
+
 static const char **parse_defines(yyjson_val *arr) {
     if (!arr || !yyjson_is_arr(arr)) return NULL;
 
@@ -150,6 +194,32 @@ int axle_load_settings(axle_receipt *recp, const char *defaults_path, const char
 
         const char *output = yyjson_get_str(yyjson_obj_get(code, "output"));
         if (output) recp->output.path = strdup(output);
+    }
+
+    yyjson_val *hooks = yyjson_obj_get(root, "hooks");
+    if (hooks) {
+        if (!yyjson_is_obj(hooks)) {
+            fprintf(stderr, "[axle][hooks] 'hooks' must be an object\n");
+            free(dir_path);
+            yyjson_doc_free(doc);
+            return -1;
+        }
+
+        if (parse_hook_commands(yyjson_obj_get(hooks, "pre-build"),
+                                "pre-build",
+                                &recp->hooks.pre_build) < 0) {
+            free(dir_path);
+            yyjson_doc_free(doc);
+            return -1;
+        }
+
+        if (parse_hook_commands(yyjson_obj_get(hooks, "post-build"),
+                                "post-build",
+                                &recp->hooks.post_build) < 0) {
+            free(dir_path);
+            yyjson_doc_free(doc);
+            return -1;
+        }
     }
 
     /* ----- local dependencies (`.modules/`) -----

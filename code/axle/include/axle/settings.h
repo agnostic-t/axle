@@ -32,6 +32,11 @@ typedef struct {
 } axle_sources;
 
 typedef struct {
+  const char **pre_build;
+  const char **post_build;
+} axle_hooks;
+
+typedef struct {
   axb_outtype type;
   const char *obj_path;
   const char *path;
@@ -58,6 +63,7 @@ typedef struct {
   const char *linker;
   axle_target target;
   axle_sources sources;
+  axle_hooks hooks;
   axle_output output;
 
   axle_metadata metadata;

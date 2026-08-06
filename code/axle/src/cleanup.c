@@ -23,6 +23,12 @@ void clean_axle_sources(axle_sources *src){
     if (src->pkgs) uax_free_strlist_ne((char***)&src->pkgs);
 }
 
+void clean_axle_hooks(axle_hooks *hooks){
+    if (!hooks) return;
+    if (hooks->pre_build) uax_free_strlist_ne((char***)&hooks->pre_build);
+    if (hooks->post_build) uax_free_strlist_ne((char***)&hooks->post_build);
+}
+
 void clean_axle_output(axle_output *out){
     if (!out) return;
     if (out->obj_path) free((char*)out->obj_path);
@@ -35,6 +41,7 @@ void clean_axle_receipt(axle_receipt *recp){
     if (recp->linker) free((char*)recp->linker);
     clean_axle_target(&recp->target);
     clean_axle_sources(&recp->sources);
+    clean_axle_hooks(&recp->hooks);
     clean_axle_output(&recp->output);
     clean_axle_metadata(&recp->metadata);
 

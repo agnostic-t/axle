@@ -600,8 +600,10 @@ int axle_dep_build(const char *project_root, const char *repo_name,
         }
         free(mods_base);
 
-        /* 5. Build the repo itself. */
-        if (success && !recp.only_deps) {
+        /* 5. Build the repo itself. axle_build() handles only-deps receipts
+         * and still executes their pre/post hooks, so do not skip the call
+         * here. */
+        if (success) {
             if (0 > axle_build(&recp, vendor_path, true, rebuild, silent)) {
                 fprintf(stderr, "%s[axle][depman] build failed for repo '%s'%s\n",
                         xfore.red, repo_name, xfore.normal);
