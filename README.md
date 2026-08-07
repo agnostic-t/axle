@@ -66,7 +66,7 @@ The current implementation uses Linux/POSIX facilities including `linux/limits.h
 Clone the repository:
 
 ```bash
-git clone https://github.com/striter-no/axle.git
+git clone https://github.com/agnostic-t/axle.git
 cd axle
 ```
 
